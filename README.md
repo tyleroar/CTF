@@ -103,9 +103,10 @@ With this new understanding, I set a breakpoint for $82F7 and started over with 
  ```
 At $8339 we can see we're using the Absoluted Indexed with Y addressing mode again.  (The value starting at $001E is 0x86, so clearly it isn't just the unmodified ASCII stored there).
 BNE is Branch on Result Not Zero, which is Branch if Z=0.  For a LDA, Z=1 IFF the memory address being loaded from is zero.  I decided to skip over the branch (by setting Z=1).  That allowed me to beat the game.  Unfortunately the message I Got said that 'They might use that password in other places that might lead to a score'.  Rats...looks like I need to actually find the password and not just skip over the code.  So, we know now that we want $001E-$003A to contain 0x00, so let's set a breakpoint for a write to $001E and see where we are writing to it.  The first break came at $832F.where it told me it was about to write 0x86 to 0x1e.  That number seems to be familiar.
-The instruction at $832C is EOR $9576,Y.  I think my goal is to have this always be zero, so I set a breakpoint at $9576.  $9576 initially equals 0x20.  What value do I need to put in $0005 to make it be 0x20 after being modified?
+The instruction at $832C is EOR $9576,Y.  The goal is to have this always be zero, so I set a breakpoint at $9576.  $9576 initially equals 0x20.  What value do I need to put in $0005 to make it be 0x20 after being modified by the code snippet above?
 I decided to track what the value of the Accumulator was at $832C based on the password entered.
 I set my breakpoint and started testing passwords
+```
 Password|Accumulator
 A A7
 B 26
@@ -115,6 +116,7 @@ E A5
 F 24
 G A4
 ...
+```
 It didn't take too long to realize there was a pattern.  I set the first letter of the password to N and was happy to see that 001E contained 0x00 after running.  I copied down the values for the rest of the formula and the values in memory starting at $9576 and put together the password...and was wrong.
 Unfortunately, the values are shifted based upon which spot in the password they are, so the values donn't hold across all spots, but the incrementing/decrementing pattern does.  Based on this, I was able to eventually crack the password, which was also the flag!
 
