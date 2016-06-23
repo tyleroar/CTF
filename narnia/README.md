@@ -161,4 +161,10 @@ int main(int argc, char **argv){
         exit(1);
 }
 ```
-
+This program is copying the file we tell it to /dev/null.  The vulnerability is taht there are no checks on the bounds of ifile when strcpy is used.  We can overflow ifile in order to overwite ofile and output to somewhere other than /dev/null. If I could have ifile point to the /etc/narnia_pass/narnia4 file and the output be somewhere I could read, I could get the program to copy the password for me.
+First I made a symbolic link:
+```
+ln -s /etc/narnia_pass/narnia4 /tmp/me/test12345678901234567890/tmp/me/ab
+```
+This linked the /tmp/me/test12345678901234567890/tmp/me/ab file to the narnia password.  I then read the program with "./narnia3 /tmp/me/test12345678901234567890/tmp/me/a"  and was then able to cat the password from /tmp/me/ab.  The reason ofile is /tmp/me/ab is because those are the values in memory immedaitely after the 32 characters of ifile.
+#Level4
