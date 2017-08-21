@@ -147,6 +147,7 @@ control 28 bytes of characters starting at 0x2400, I can overwrite 0x2410 with
 Once again there's a call to INT 0x7d in test_password_valid, so I won't be able to pull the password
 out of memory.  Let's see how test_password_valid is used in the rest of the
  code
+```
 4500 <login>
 4500:  3150 f0ff      add #0xfff0, sp
 4504:  3f40 7c44      mov #0x447c "Enter the password to continue.", r15
@@ -169,12 +170,46 @@ characters.", r15
 453a:  3150 1000      add #0x10, sp
 453e:  3041           ret
 ```
-Ok, so getsn(0x30, 0x43ee) and then test_password_valid(0x43ee) this means I
+Ok, so getsn(0x30, 0x43ee) and then test_password_valid-0x43ee this means I
 control memory from 0x43ee to 0x441d.  At the end of login, the retaddr is
 stored at 0x43fe (note the add 0x10 sp on 0x453a).  This means we can jump to
 any arbitrary location in code we want by entering 16 characters and then our
 return address (in little endian).  unlock_door (0x4446) looks like a good place to go
 to, so I entered AAAAAAAAAAAAAAAAFD and the door unlocked.
 
-### Level 4 / Reykjavik
-
+## Level 5 / Reykjavik
+Looking through the code I didn't see my expected login, unlock_door, etc
+functions.  Instead, main looked like:
+```
+4438 <main>
+4438:  3e40 2045      mov #0x4520, r14
+443c:  0f4e           mov r14, r15
+443e:  3e40 f800      mov #0xf8, r14
+4442:  3f40 0024      mov #0x2400, r15
+4446:  b012 8644      call  #0x4486 <enc>
+444a:  b012 0024      call  #0x2400
+444e:  0f43           clr r15
+```
+So it looks like the program has been encoded somehow and is going to be
+decoded before execution.  I'm guessing the enc()  program actually decodes
+everything that's going to be run.  If this was gdb, I'd break on 0x2400 and
+then disassembly it.  Alas, it isn't...so instead I wait till I'm prompted for
+a password and then step out.  At this point the pc is 0x2444.  Somewhere
+around here is probably the password check, so I'll use the handy
+[assembler/disassembler](https://microcorruption.com/assembler) to see what's
+going on.
+```
+3150 0600      add  #0x6, sp
+b490 1428 dcff cmp  #0x2814, -0x24(r4)
+0520           jnz  $+0xc
+3012 7f00      push #0x7f
+b012 6424      call #0x2464
+2153           incd sp
+3150 2000      add  #0x20, sp
+3441           pop  r4
+```
+It looks like it's checking some part of my password and comparing it to
+0x2814.
+r4=0x43fe, so 0x43fe-0x24 = 0x43da, which is the start of my password.  I enter
+1428 and click the hex input box, and the door unlocks!
+### Level 6 / Whitehorse
