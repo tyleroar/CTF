@@ -393,5 +393,35 @@ password - 4242424242424242424242424242424242
 ### Level 10 /  Jakarta
 Taking a look at the strings I see that username + password must be < 32.  In
 the code, I also see a string for password too long.  Perhaps this means
-there's not actually logic checking to see if my username is too long.
+there's not actually logic checking to see if my username is too long -- nope,
+long username just prints the password too long error message.
+username stored at 0x2402 and can be 0xff long
+After username is entered they calculate the strlen and store it in r11
+Then they call strcpy and copy the string to the top of the stack.
+Unfortunately, the sp is too far away from the pc to simply overwrite the
+memory at pc.
+After the strcpy, they check to see if the length was > 32.  If it is, it exits
+out, otherwise it prompts for password.
+Username gets copied to: 0x3ff2  (we control 0x3ff2 to 0x40f1 or to 0x4012 if
+we execution to continue forward).
+Password can be up to 0x1ff bytes long.
+Password gets copied to: 0x3ff2+len(username Max=32) -- 0x4012
+We control 0x3ff2 to 0x4211 between username and password (null byte seperator) (password is 0x4012
+to 0x4211)
+After the password is entered and strcpied, they compare the length to 32 and
+exit if it's too long.  However, they do a cmp.b for the comparison, which is a
+byte comparison.  In my case, username+password was 0x21f length, but since
+0x1f is < 0x20, program execution continued.
+Next, test_username_and_password_valid(sp) is called.  This function is
+checking to see if the password entered is correct.  It returns non-zero if the
+correct password was entered.  Since we didn't enter the correct password, we
+take a different code path and have 'that password is not correct' displayed.
+0x22 is added to the stack and 1 value popped.  Since I control to 0x4211, I
+can overwrite the ret addr that is going to be called at the end of login and
+control where we go.  unlock_door (0x444c) seems like a good choice.
+I entered BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB for the username and
+AAAALDCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+for the password and the door opened (L = 0x4c, D =0x44)
 
+### Level 11 / Addis Ababa
+ 
