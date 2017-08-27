@@ -611,6 +611,68 @@ call #0x4536
 Since we're saving an instruction here, our shellcode comes out to
 3c808f410c12b0123645 and fits in the buffer!
 
-I entered 08423c808f410c12b012364541410842256e and it unlocked! 
+I entered 08423c808f410c12b012364541410842256e and it unlocked!
 ### Level 13 / Algiers
-
+This level differs from previous levels in that it uses the heap (malloc/free)
+calls instead of just the stack to store information.
+Psuedocode for login() is below.
+char *username = malloc(0x10)
+char *password = malloc(0x10)
+getsn(username, 0x30)
+getsn(password, 0x30)
+We can see that we can write past our allocated heap variable by 0x20 bytes for
+both the username and the password.
+malloc() implementations usually prepend whatever memory is allocated with some
+type of header so that free() knows how much memory to free.  Assuming that
+password gets place directly after username on the heap, we should be able to
+modify malloc header of password to be whatever we want.
+The free calls are at the very end of the program, (before a pop r10, pop r11,
+ret).  The heap starts around 0x2400 and the sp is around 0x4392.  Is it
+possible that modifying the header will let me change memory all the way up to
+0x4392 to control execution when the 'ret' occurs?
+I entered 16 A's as my username and 16 V's for my password and ran the program.
+I got load address unaligned (0x4145) at 0x451c.  Looks like this is a good
+path to go down.
+```
+4508 <free>
+4508:  0b12           push  r11 //r15=0x2424=password
+450a:  3f50 faff      add #0xfffa, r15 //r15=0x241e (password-6)
+450e:  1d4f 0400      mov 0x4(r15), r13 //r13=password-2
+4512:  3df0 feff      and #0xfffe, r13 //
+4516:  8f4d 0400      mov r13, 0x4(r15) //memory write here
+451a:  2e4f           mov @r15, r14 //r14=0x2408, still controllable my
+username input
+451c:  1c4e 0400      mov 0x4(r14), r12 //
+4520:  1cb3           bit #0x1, r12
+4522:  0d20           jnz #0x453e <free+0x36> //need to not take this jump,
+i.e. r12 must be even
+4524:  3c50 0600      add #0x6, r12
+4528:  0c5d           add r13, r12
+452a:  8e4c 0400      mov r12, 0x4(r14) //memory write here
+452e:  9e4f 0200 0200 mov 0x2(r15), 0x2(r14) //memory write here
+```
+The first free() is called as free(0x2424) to free the password.  The values
+during the free(username) call have been annotated above.  We see that we have
+a write on 0x4516, but it doesn't look like that will be useful since it's
+reading from and writing back to the same location.  Maybe 0x452a or 0x452e are
+better options.
+When breaking on 0x452a I see r14 is 0x2408, which is based off a value we
+control.  r12 is 0x0046, which is based on a value we control as well.  Looks
+like we can use this to overwrite the retval...now to actually do that.
+Also looks like the write at 0x452e is controlled by us and might be easier.
+username=AAAAAAAAAAAAAAAA[0024][3424][2100][password]
+password = username+16 + 8 //8 byte malloc header
+So, r12 is the *[0024] from above, and we need *0x2400 to be even.  
+r12+6 (6 in our case).  r12=r12+6+(r13)  (where r13 is [2100]&0x1e). 
+we then have mov r12, 0x4(r14).  In our case r14 is 2400, so we had 0026 moved
+to 2404.
+On ret (0x4562), sp=4394, so that is the value we need to overwrite.
+I used 41414141414141414141414141414141924334242100 as my input and my code
+ret'd to 0x2408.  Somehow, (luck, design, magic??) code execution continued
+until 0x240e...the start of my input.  So, instead of using all A's, I'll just
+write some shellcode to call unlock_door!
+For some reason, jmp #0x4564 was not working (it was assembled to ff3f, which
+disassembles to jmp $+0x0), so i used call #0x4564 instead.
+I entered b0126445414141414141414141414141924334242100 as my input and it
+worked!
+### Level 13 / Vladivostok
