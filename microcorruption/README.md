@@ -675,4 +675,72 @@ For some reason, jmp #0x4564 was not working (it was assembled to ff3f, which
 disassembles to jmp $+0x0), so i used call #0x4564 instead.
 I entered b0126445414141414141414141414141924334242100 as my input and it
 worked!
-### Level 13 / Vladivostok
+### Level 13 / Vladivostok (alphanumeric)
+Alphanumeric shellcode!  For this problem, you an overwrite all the way to
+0x446/conditional_unlock_door, which means normal exeuction will call your
+shellcode!  The cath is that your shellcode must be alphanumeric.  I used the
+online disassembler to give me all valid 2-byte alphanumeric shellcode, with
+the plan of getting 0x7f on the stack and then using the call INT already in
+the code at 0x4460.  Unfortunately, there was no 0x7f in memory anywhere, so I
+was unable to get it to the stack.  Instead, I decided to directly execute the
+INT myself, instead of using the stub they head.  The documentation says to use
+INT(0x7f) to unlock the deadbolt.  However, I can probably just directly
+trigger the interrupt.  To learn more about how the INT was behaving, I went
+back to level 7 and examined how it worked.  On this level, we were calling
+INT(0x7f) from our shellcode. 
+r15=0x7f, INT does the four commands below on our input:
+```
+4554:  8f10           swpb  r15
+4556:  024f           mov r15, sr
+4558:  32d0 0080      bis #0x8000, sr
+455c:  b012 1000      call  #0x10
+```
+ So, it looks like we can get #0xff00 in to sr and then call(or jump) #0x10.
+Further, the docs state that only the high byte of sr is used, so we can use
+0xff00-0xfff for our sr value before we call or jump to 0x10.  In order to jump
+to 0x10, I can use one of the register indirect mov byte instructions if I
+first set up the register to point to memory that holds 0x10.  
+Scrolling through the disassembly, I saw that 0x45f4 held 10 00 or, 0x10 in
+little endian.  
+I used mov  @r15+, sr to get 0x6100 in to the sr and then subc  #0x6132, sr to
+get the sr to be 0xffce.  I laid out my exploit as follows:
+filler bits to get up to 4446, r7 set up to prep for moving r7 to pc to jump to
+0x10, sr prep to get 0xff00 in the sr for the int and finally the mov @r7 to
+pc.
+I used the input
+617a636465666768696a6b6c6d6e6f707172737475767778794142434445464748494a4b4c4d4e4f505152535455565758596162636465666768696a6b6c6d6e6f707172737475767778794142434445464748494a4b4c4d4e3750437a37507a7a37503751324f327032613047
+and....it didn't work!  for some reason, the interrupt doesn't trigger if the
+sr=0xffce and instead actually required the sr to have 0xff00.
+I reworked my sr math to have it come out to 0xff00 exactly and it worked!
+input -
+617a636465666768696a6b6c6d6e6f707172737475767778794142434445464748494a4b4c4d4e4f505152535455565758596162636465666768696a6b6c6d6e6f707172737475767778794142434445464748494a4b4c4d4e3750437a37507a7a37503751325043423250424232507a7a3047
+
+### Level 14 / Vladivostok (ASLR)
+That last level was super hard for me.  This one is only 100 points, so hopefully it's
+a little easier!
+This level has references to ASLR being turned on...fun!
+The username is restricted to 8 characters, so I entered a shortname, and
+'abcdefghijklmnopqrstuvwxy' for the password.  When I ran this, I got pc=6a69
+(ij), which means I have 8 bytes on the stack and then the retAddr.
+this level uses printf to echo back the username and again users the dangerous
+printf(username) method instead of printf("%s", username);  I played around
+with entering %s and %p and eventually got some output using %x%x%x%x.
+When I used the %x output, I got the value c32e echoed back out to me.  When I
+viewed the memory at the location there, I recognized it as the beginning of
+the printf() function.  I assumed that even  though the functions were being
+relocated to random locations, the distance beteween functions would have to be
+fixed.  I wanted to be able to use the INT that takes stack arguments,
+originally located at 0x48ec.  printf was originally located at 0x476a, an
+offset of 0x182 bytes.   I examined the memory at 0xc32e+0x182=0xc4b0 and it
+was the INT code!  Now all I had to do was set up the stack so I had 0x007f on
+the stack and return to the relocated INT.  
+I entered 4142434445464748b0c4007f for my input and...it didn't work...
+Looking at it again, I saw that I need 2 bytes of space on the stack after the
+return address and before the first argument. 
+```
+48ec <_INT>
+48ec:  1e41 0200      mov 0x2(sp), r14
+```
+I also had entered my 7f value as 007f instead of accounting for endianess and
+entering it as 7f00.  After correcting those two errors, it worked!
+### Level 15 / Bangalore (DEP)
